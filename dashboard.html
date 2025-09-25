@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard • Reading Group</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="nav">
+    <h1>Dashboard</h1>
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./leaderboard.html">Leaderboard</a>
+      <a href="./profile.html">Profile</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <!-- Payment banner -->
+    <div id="payment-required" class="payment-banner" style="display:none;">
+      <h2>🔒 Payment Required</h2>
+      <p>Pay ₦500 to unlock reading sessions and start earning points!</p>
+      <button onclick="location.href='./payment.html'" class="pay-btn">Pay Now</button>
+    </div>
+
+    <!-- Dashboard content -->
+    <div id="dashboard-content" class="grid grid-cols-2" style="display:none;">
+      <section class="card">
+        <h3>Points</h3>
+        <div id="points">0</div>
+      </section>
+      <section class="card">
+        <h3>Rank</h3>
+        <div id="rank">-</div>
+      </section>
+      <section class="card" style="grid-column:1 / -1;">
+        <h3>Session</h3>
+        <button id="start-session">Start Session</button>
+      </section>
+    </div>
+  </main>
+
+  <!-- Firebase -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+  <script src="../firebase-config.js"></script>
+
+  <script>
+    (function () {
+      const app = firebase.initializeApp(
+        window.firebaseConfig || window.firebase_config || window.FIREBASE_CONFIG
+      );
+      const auth = firebase.auth();
+      const db = firebase.firestore();
+
+      const paymentBanner = document.getElementById('payment-required');
+      const dashboardContent = document.getElementById('dashboard-content');
+      const pointsDiv = document.getElementById('points');
+      const rankDiv = document.getElementById('rank');
+      const startBtn = document.getElementById('start-session');
+
+      // Watch auth state
+      auth.onAuthStateChanged(async (user) => {
+        if (!user) {
+          alert('Please login first.');
+          location.href = './login.html';
+          return;
+        }
+
+        // Fetch user data
+        const snap = await db.collection('users').doc(user.uid).get();
+        const u = snap.data() || {};
+
+        // Payment gating
+        if (!u.paymentStatus) {
+          paymentBanner.style.display = 'block';
+          dashboardContent.style.display = 'none';
+          return;
+        }
+
+        paymentBanner.style.display = 'none';
+        dashboardContent.style.display = 'grid';
+        pointsDiv.textContent = u.points ?? 0;
+        rankDiv.textContent = u.rank ?? '-';
+      });
+
+      // Start session
+      if (startBtn) {
+        startBtn.onclick = async () => {
+          const user = auth.currentUser;
+          if (!user) {
+            alert('Please login');
+            return;
+          }
+          if (!user.emailVerified) {
+            alert('Verify your email first.');
+            return;
+          }
+
+          try {
+            // Check if user already has an active session
+            const userRef = db.collection('users').doc(user.uid);
+            const userSnap = await userRef.get();
+            const uData = userSnap.data() || {};
+
+            if (uData.activeSession) {
+              alert('You already have an active session!');
+              return;
+            }
+
+            // Create session document
+            const sessionRef = await db.collection('sessions').add({
+              userId: user.uid,
+              startTime: firebase.firestore.FieldValue.serverTimestamp(),
+              endTime: null,
+              completed: false,
+              pointsAwarded: false
+            });
+
+            // Update user doc
+            await userRef.set({
+              email: user.email,
+              points: uData.points || 0,
+              activeSession: true,
+              lastActive: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true });
+
+            localStorage.setItem('activeSessionId', sessionRef.id);
+            alert('Session started successfully!');
+            location.href = './session.html';
+          } catch (e) {
+            console.error(e);
+            alert('Failed to start session: ' + (e.message || 'Unknown error'));
+          }
+        };
+      }
+    })();
+  </script>
+</body>
+</html>

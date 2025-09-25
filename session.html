@@ -1,0 +1,184 @@
+yes  <!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Session • Reading Group</title>
+	<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+	<header class="nav">
+		<h1>Active Session</h1>
+		<nav>
+			<a href="./dashboard.html">Dashboard</a>
+		</nav>
+	</header>
+	<main class="container card">
+		<div class="timer" id="timer">00:00</div>
+		<div id="status">Active</div>
+		<div class="session-controls">
+			<button id="verify-session" class="btn btn-primary">Verify Session</button>
+			<button id="end-session" class="btn btn-secondary">End Session</button>
+		</div>
+		<div id="verification-result" style="display: none;"></div>
+	</main>
+
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+	<script src="../firebase-config.js"></script>
+	<script>
+	(function(){
+		const app = firebase.initializeApp(window.firebaseConfig);
+		const auth = firebase.auth();
+		const db = firebase.firestore();
+		
+		const start = Date.now();
+		const el = document.getElementById('timer');
+		let timerInterval;
+		
+		// Timer functionality
+		function updateTimer() {
+			const ms = Date.now() - start;
+			const total = Math.floor(ms/1000);
+			const m = String(Math.floor(total/60)).padStart(2,'0');
+			const s = String(total%60).padStart(2,'0');
+			el.textContent = `${m}:${s}`;
+		}
+		
+		timerInterval = setInterval(updateTimer, 1000);
+		
+		// Session verification functionality
+		const verifyBtn = document.getElementById('verify-session');
+		const endBtn = document.getElementById('end-session');
+		const resultDiv = document.getElementById('verification-result');
+		const statusDiv = document.getElementById('status');
+		
+		if (verifyBtn) {
+			verifyBtn.onclick = async () => {
+				const sessionId = localStorage.getItem('activeSessionId');
+				if (!sessionId) {
+					showResult('No active session found', 'error');
+					return;
+				}
+				
+				try {
+					verifyBtn.disabled = true;
+					verifyBtn.textContent = 'Verifying...';
+					
+					// Get session document
+					const sessionDoc = await db.collection('sessions').doc(sessionId).get();
+					if (!sessionDoc.exists) {
+						showResult('Session not found', 'error');
+						return;
+					}
+					
+					const sessionData = sessionDoc.data();
+					const user = auth.currentUser;
+					
+					// Verify session belongs to user
+					if (sessionData.userId !== user.uid) {
+						showResult('Session does not belong to you', 'error');
+						return;
+					}
+					
+					showResult('Session verified successfully!', 'success');
+					statusDiv.textContent = 'Verified';
+					statusDiv.style.color = 'green';
+					
+				} catch (error) {
+					console.error('Verification error:', error);
+					showResult('Verification failed: ' + (error.message || 'Unknown error'), 'error');
+				} finally {
+					verifyBtn.disabled = false;
+					verifyBtn.textContent = 'Verify Session';
+				}
+			};
+		}
+		
+		if (endBtn) {
+			endBtn.onclick = async () => {
+				if (confirm('Are you sure you want to end this session?')) {
+					const sessionId = localStorage.getItem('activeSessionId');
+					const user = auth.currentUser;
+					
+					if (!sessionId || !user) {
+						showResult('No active session to end', 'error');
+						return;
+					}
+					
+					try {
+						endBtn.disabled = true;
+						endBtn.textContent = 'Ending...';
+						
+						const now = new Date();
+						const sessionDuration = (now - start) / (1000 * 60); // minutes
+						
+						// Minimum session duration (1 minute for easy testing)
+						const minDuration = 1;
+						if (sessionDuration < minDuration) {
+							showResult(`Session must be at least ${minDuration} minute long. Current: ${Math.round(sessionDuration * 60)} seconds`, 'error');
+							endBtn.disabled = false;
+							endBtn.textContent = 'End Session';
+							return;
+						}
+						
+						// Update session document
+						await db.collection('sessions').doc(sessionId).update({
+							endTime: firebase.firestore.FieldValue.serverTimestamp(),
+							completed: true,
+							durationMinutes: Math.round(sessionDuration)
+						});
+						
+						// Award points and update user
+						const userRef = db.collection('users').doc(user.uid);
+						const userSnap = await userRef.get();
+						const currentPoints = userSnap.exists() ? (userSnap.data().points || 0) : 0;
+						
+						await userRef.update({
+							points: currentPoints + 1,
+							activeSession: false,
+							lastSessionCompleted: firebase.firestore.FieldValue.serverTimestamp(),
+							lastActive: firebase.firestore.FieldValue.serverTimestamp()
+						});
+						
+						// Update session with points awarded
+						await db.collection('sessions').doc(sessionId).update({
+							pointsAwarded: true
+						});
+						
+						clearInterval(timerInterval);
+						statusDiv.textContent = 'Completed';
+						statusDiv.style.color = 'green';
+						verifyBtn.disabled = true;
+						showResult(`Session completed! Duration: ${Math.round(sessionDuration)} minutes. You earned 1 point!`, 'success');
+						
+						// Clear session from localStorage
+						localStorage.removeItem('activeSessionId');
+						
+					} catch (error) {
+						console.error('Error ending session:', error);
+						showResult('Failed to end session: ' + (error.message || 'Unknown error'), 'error');
+						endBtn.disabled = false;
+						endBtn.textContent = 'End Session';
+					}
+				}
+			};
+		}
+		
+		function showResult(message, type) {
+			resultDiv.textContent = message;
+			resultDiv.className = type;
+			resultDiv.style.display = 'block';
+			setTimeout(() => {
+				resultDiv.style.display = 'none';
+			}, 5000);
+		}
+	})();
+	</script>
+	<script src="./app.js"></script>
+</body>
+</html>
+
+

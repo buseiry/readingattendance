@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Login • Reading Group</title>
+	<link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+	<header class="nav"><h1>Login</h1></header>
+	<main class="container card">
+		<input id="email" placeholder="Email" />
+		<input id="password" type="password" placeholder="Password" />
+		<button id="do-login">Login</button>
+	</main>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+	<script src="../firebase-config.js"></script>
+	<script>
+	(function(){
+		const app = firebase.initializeApp(window.firebaseConfig || window.firebase_config || window.FIREBASE_CONFIG);
+		const auth = firebase.auth();
+		document.getElementById('do-login').onclick = async () => {
+			const email = document.getElementById('email').value;
+			const password = document.getElementById('password').value;
+			try{
+				await auth.signInWithEmailAndPassword(email, password);
+				if (!auth.currentUser?.emailVerified) { alert('Please verify your email first.'); return; }
+				location.href = './dashboard.html';
+			}catch(e){ alert(e.message || 'Failed'); }
+		};
+	})();
+	</script>
+</body>
+</html>
+
+

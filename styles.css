@@ -1,0 +1,240 @@
+:root {
+	--bg: #0b1020;
+	--card: #121933;
+	--text: #e6e9f5;
+	--muted: #a6afd1;
+	--accent: #5b8cff;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background: var(--bg); color: var(--text); }
+
+.nav { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: #0c1430; position: sticky; top: 0; }
+.nav a { color: var(--muted); text-decoration: none; margin-left: 12px; }
+.nav a:hover { color: var(--text); }
+
+.container { padding: 16px; max-width: 960px; margin: 0 auto; }
+.hero { background: var(--card); padding: 24px; border-radius: 12px; }
+.cta { display: flex; gap: 8px; margin-top: 12px; }
+button { background: var(--accent); color: white; border: 0; border-radius: 8px; padding: 10px 14px; }
+button.secondary { background: transparent; border: 1px solid #34406b; color: var(--text); }
+
+.card { background: var(--card); border-radius: 12px; padding: 16px; }
+.grid { display: grid; gap: 12px; }
+@media (min-width: 720px) { .grid-cols-2 { grid-template-columns: 1fr 1fr; } }
+
+.timer { font-size: 40px; font-weight: 700; letter-spacing: 1px; }
+.feature { background: #0f1736; border: 1px solid #1b2552; padding: 12px; border-radius: 10px; display: inline-block; margin: 6px 6px 0 0; }
+
+/* Session controls */
+.session-controls { 
+  display: flex; 
+  gap: 12px; 
+  margin-top: 20px; 
+  justify-content: center; 
+}
+
+.btn { 
+  padding: 12px 24px; 
+  border-radius: 8px; 
+  border: none; 
+  cursor: pointer; 
+  font-weight: 500; 
+  transition: all 0.2s ease; 
+}
+
+.btn-primary { 
+  background: var(--accent); 
+  color: white; 
+}
+
+.btn-primary:hover { 
+  background: #4a7dff; 
+  transform: translateY(-1px); 
+}
+
+.btn-primary:disabled { 
+  background: #34406b; 
+  cursor: not-allowed; 
+  transform: none; 
+}
+
+.btn-secondary { 
+  background: transparent; 
+  border: 1px solid #34406b; 
+  color: var(--text); 
+}
+
+.btn-secondary:hover { 
+  border-color: var(--accent); 
+  color: var(--accent); 
+}
+
+.btn-secondary:disabled { 
+  border-color: #2a3450; 
+  color: var(--muted); 
+  cursor: not-allowed; 
+}
+
+/* Verification result */
+#verification-result { 
+  margin-top: 16px; 
+  padding: 12px; 
+  border-radius: 8px; 
+  text-align: center; 
+  font-weight: 500; 
+}
+
+#verification-result.success { 
+  background: rgba(34, 197, 94, 0.1); 
+  border: 1px solid #22c55e; 
+  color: #22c55e; 
+}
+
+#verification-result.error { 
+  background: rgba(239, 68, 68, 0.1); 
+  border: 1px solid #ef4444; 
+  color: #ef4444; 
+}
+
+#verification-result.info { 
+  background: rgba(59, 130, 246, 0.1); 
+  border: 1px solid #3b82f6; 
+  color: #3b82f6; 
+}
+
+/* Payment styles */
+.payment-banner {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 30px;
+  border-radius: 12px;
+  text-align: center;
+  margin-bottom: 20px;
+}
+
+.payment-banner h2 {
+  margin: 0 0 10px 0;
+  font-size: 24px;
+}
+
+.payment-banner p {
+  margin: 0 0 20px 0;
+  font-size: 16px;
+  opacity: 0.9;
+}
+
+.pay-btn {
+  background: #4CAF50;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.pay-btn:hover {
+  background: #45a049;
+  transform: translateY(-2px);
+}
+
+/* Payment page styles */
+.payment-info {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+.payment-info h2 {
+  color: var(--text);
+  margin-bottom: 10px;
+}
+
+.price {
+  font-size: 48px;
+  font-weight: bold;
+  color: var(--accent);
+  margin: 20px 0;
+}
+
+.features {
+  margin: 20px 0;
+  text-align: left;
+  max-width: 300px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.feature {
+  padding: 8px 0;
+  color: var(--text);
+}
+
+.payment-form {
+  background: var(--card);
+  padding: 20px;
+  border-radius: 12px;
+  margin: 20px 0;
+}
+
+.pay-button {
+  width: 100%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 15px;
+  border-radius: 8px;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  margin-top: 15px;
+  transition: all 0.2s ease;
+}
+
+.pay-button:hover:not(:disabled) {
+  background: #4a7dff;
+  transform: translateY(-1px);
+}
+
+.pay-button:disabled {
+  background: #666;
+  cursor: not-allowed;
+}
+
+.payment-methods {
+  text-align: center;
+  margin-top: 20px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* Status messages */
+#payment-status {
+  margin-top: 15px;
+  padding: 12px;
+  border-radius: 8px;
+  text-align: center;
+  font-weight: 500;
+}
+
+#payment-status.success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid #22c55e;
+  color: #22c55e;
+}
+
+#payment-status.error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid #ef4444;
+  color: #ef4444;
+}
+
+#payment-status.info {
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid #3b82f6;
+  color: #3b82f6;
+}
+
+

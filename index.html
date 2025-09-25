@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Log In</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="nav">
+    <h1>Reading Group – Login</h1>
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./leaderboard.html">Leaderboard</a>
+      <a href="./dashboard.html">Dashboard</a>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section>
+      <h2>Log In to Your Account</h2>
+      <form id="login-form">
+        <label for="login-email">Email</label><br>
+        <input type="email" id="login-email" required><br><br>
+
+        <label for="login-password">Password</label><br>
+        <input type="password" id="login-password" required><br><br>
+
+        <button type="submit">Log In</button>
+      </form>
+      <p id="login-error" style="color:red;"></p>
+    </section>
+  </main>
+
+  <!-- Firebase scripts -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+
+  <!-- Your Firebase config file -->
+  <script src="../firebase-config.js"></script>
+
+  <script>
+    // Initialize Firebase
+    const app = firebase.initializeApp(
+      window.firebaseConfig || window.firebase_config || window.FIREBASE_CONFIG
+    );
+    const auth = firebase.auth();
+
+    // Form elements
+    const loginForm = document.getElementById('login-form');
+    const loginError = document.getElementById('login-error');
+
+    // Handle login form submit
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      loginError.textContent = '';
+
+      const email = document.getElementById('login-email').value.trim();
+      const password = document.getElementById('login-password').value;
+
+      try {
+        const cred = await auth.signInWithEmailAndPassword(email, password);
+
+        if (!cred.user.emailVerified) {
+          loginError.textContent = 'Verify your email before logging in.';
+          await auth.signOut();
+          return;
+        }
+
+        // Redirect to dashboard after successful login
+        window.location.href = './dashboard.html';
+      } catch (err) {
+        loginError.textContent = err.message;
+      }
+    });
+  </script>
+</body>
+</html>

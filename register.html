@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Register • Reading Group</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <header class="nav">
+    <h1>Create an Account</h1>
+    <nav>
+      <a href="./index.html">Home</a>
+      <a href="./login.html">Log In</a>
+    </nav>
+  </header>
+
+  <main class="container card">
+    <form id="register-form">
+      <label for="email">Email</label><br>
+      <input id="email" type="email" required><br><br>
+
+      <label for="name">Display name</label><br>
+      <input id="name" type="text" required><br><br>
+
+      <label for="password">Password</label><br>
+      <input id="password" type="password" required><br><br>
+
+      <label for="ref">Referral code (optional)</label><br>
+      <input id="ref" type="text"><br><br>
+
+      <button type="submit" id="do-reg">Create Account</button>
+    </form>
+    <p id="reg-error" style="color:red;"></p>
+  </main>
+
+  <!-- Firebase scripts -->
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+  <script src="../firebase-config.js"></script>
+
+  <script>
+    (function () {
+      const app = firebase.initializeApp(
+        window.firebaseConfig || window.firebase_config || window.FIREBASE_CONFIG
+      );
+      const auth = firebase.auth();
+      const db = firebase.firestore();
+
+      const regForm = document.getElementById('register-form');
+      const regError = document.getElementById('reg-error');
+
+      regForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        regError.textContent = '';
+
+        const email = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const displayName = document.getElementById('name').value.trim();
+        const referral = document.getElementById('ref').value.trim();
+
+        try {
+          // Create account
+          const cred = await auth.createUserWithEmailAndPassword(email, password);
+          await cred.user.updateProfile({ displayName });
+          await cred.user.sendEmailVerification();
+
+          // Create Firestore user doc
+          await db.collection('users').doc(cred.user.uid).set({
+            email: email,
+            displayName: displayName,
+            referral: referral || null,
+            points: 0,
+            activeSession: false,
+            paymentStatus: false, // User needs to pay ₦500
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            lastActive: firebase.firestore.FieldValue.serverTimestamp()
+          }, { merge: true });
+
+          alert('Verify your email, then log in.');
+          window.location.href = './login.html';
+        } catch (e) {
+          regError.textContent = e.message || 'Registration failed';
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
