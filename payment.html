@@ -43,7 +43,7 @@
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
-	<script src="../firebase-config.js"></script>
+    <script src="./firebase-config.js"></script>
 	<script>
 	(function(){
 		const app = firebase.initializeApp(window.firebaseConfig);
@@ -80,7 +80,7 @@
 			}
 		}
 		
-		document.getElementById('pay-btn').onclick = async () => {
+        document.getElementById('pay-btn').onclick = async () => {
 			const user = auth.currentUser;
 			if (!user) {
 				alert('Please login first');
@@ -92,48 +92,71 @@
 				payBtn.disabled = true;
 				payBtn.textContent = 'Processing...';
 				
-				// Create payment record
-				const paymentRef = await db.collection('payments').add({
-					userId: user.uid,
-					email: user.email,
-					amount: 500,
-					currency: 'NGN',
-					status: 'pending',
-					createdAt: firebase.firestore.FieldValue.serverTimestamp()
-				});
-				
-				// For demo purposes, simulate successful payment
-				// In real implementation, integrate with Paystack here
-				
-				// Simulate payment success after 2 seconds
-				setTimeout(async () => {
-					try {
-						// Update payment status
-						await paymentRef.update({
-							status: 'success',
-							completedAt: firebase.firestore.FieldValue.serverTimestamp()
-						});
-						
-						// Update user payment status
-						await db.collection('users').doc(user.uid).update({
-							paymentStatus: true,
-							paymentDate: firebase.firestore.FieldValue.serverTimestamp()
-						});
-						
-						showPaymentStatus('Payment successful! Redirecting to dashboard...', 'success');
-						setTimeout(() => {
-							location.href = './dashboard.html';
-						}, 2000);
-						
-					} catch (error) {
-						console.error('Error updating payment:', error);
-						showPaymentStatus('Payment failed. Please try again.', 'error');
-						payBtn.disabled = false;
-						payBtn.textContent = 'Pay ₦500 Now';
-					}
-				}, 2000);
-				
-				showPaymentStatus('Processing payment...', 'info');
+            // Use callable functions for backend-managed payment flow
+            const functionsApp = firebase.app();
+            const functionsRegion = firebase.app().options?.messagingSenderId ? undefined : undefined; // placeholder; compat auto-uses default region
+            const functions = firebase.functions();
+
+            const createPayment = functions.httpsCallable('createPayment');
+            const verifyPayment = functions.httpsCallable('verifyPayment');
+
+            // 1) Create payment on server to obtain reference
+            showPaymentStatus('Creating payment...', 'info');
+            let createRes;
+            try {
+              createRes = await createPayment({ email: user.email, amount: 500 });
+            } catch (e) {
+              console.error('createPayment failed', e);
+              throw new Error('Failed to create payment. Check server logs for details.');
+            }
+
+            const reference = createRes?.data?.reference;
+            if (!reference) {
+              console.error('createPayment missing reference', createRes);
+              throw new Error('Payment reference not returned by server');
+            }
+
+            // 2) Launch Paystack Inline
+            const PAYSTACK_PUBLIC_KEY = 'pk_test_XXXXXXXXXXXXXXXXXXXXXXXX'; // TODO: replace with your actual public key
+            if (!PAYSTACK_PUBLIC_KEY || PAYSTACK_PUBLIC_KEY.includes('XXXX')) {
+              throw new Error('Invalid Paystack public key configured on frontend');
+            }
+
+            showPaymentStatus('Opening Paystack checkout...', 'info');
+            await loadPaystackScript();
+
+            const handler = (window as any).PaystackPop.setup({
+              key: PAYSTACK_PUBLIC_KEY,
+              email: user.email,
+              amount: 500 * 100, // Kobo
+              currency: 'NGN',
+              ref: reference,
+              callback: async function(response) {
+                try {
+                  showPaymentStatus('Verifying payment...', 'info');
+                  const verifyRes = await verifyPayment({ reference });
+                  if (verifyRes?.data?.success) {
+                    showPaymentStatus('Payment successful! Redirecting to dashboard...', 'success');
+                    setTimeout(() => { location.href = './dashboard.html'; }, 1500);
+                  } else {
+                    console.error('verifyPayment returned non-success', verifyRes);
+                    showPaymentStatus('Payment could not be verified. Please contact support.', 'error');
+                  }
+                } catch (err) {
+                  console.error('verifyPayment failed', err);
+                  showPaymentStatus('Payment verification failed. Please try again.', 'error');
+                } finally {
+                  payBtn.disabled = false;
+                  payBtn.textContent = 'Pay ₦500 Now';
+                }
+              },
+              onClose: function() {
+                showPaymentStatus('Payment window closed. No charge made.', 'info');
+                payBtn.disabled = false;
+                payBtn.textContent = 'Pay ₦500 Now';
+              }
+            });
+            handler.openIframe();
 				
 			} catch (error) {
 				console.error('Payment error:', error);
@@ -149,6 +172,17 @@
 			statusEl.className = type;
 			statusEl.style.display = 'block';
 		}
+
+        function loadPaystackScript() {
+          return new Promise((resolve, reject) => {
+            if ((window as any).PaystackPop) return resolve(true);
+            const script = document.createElement('script');
+            script.src = 'https://js.paystack.co/v1/inline.js';
+            script.onload = () => resolve(true);
+            script.onerror = () => reject(new Error('Failed to load Paystack script'));
+            document.body.appendChild(script);
+          });
+        }
 	})();
 	</script>
 </body>
