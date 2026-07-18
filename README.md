@@ -71,9 +71,43 @@ When you're ready to go live:
 > **Note:** From Phase 2 onward the app uses Cloud Functions and needs the
 > Firebase **Blaze (pay-as-you-go)** plan. Costs at small scale are near zero,
 > but a card must be on file. The Firebase *web* config values are **not**
-> secrets — your data is protected by Firestore security rules (Phase 3), not
-> by hiding the config. The Paystack **secret** key is a real secret and will
-> live only in Cloud Functions config.
+> secrets — your data is protected by Firestore security rules, not by hiding
+> the config. The Paystack **secret** key is a real secret and lives only in
+> Cloud Functions config.
+
+### Payments configuration (Paystack)
+
+Client side: put your **public** key in `.env` as `VITE_PAYSTACK_PUBLIC_KEY`
+(starts with `pk_test_` / `pk_live_`). While it's blank, the Premium page shows
+a friendly "not switched on yet" message instead of a pay button.
+
+Server side (Cloud Functions env — never in the repo):
+
+- `PAYSTACK_SECRET_KEY` — your Paystack **secret** key (`sk_test_` / `sk_live_`).
+- `SEMESTER_END` *(optional)* — e.g. `2026-09-30`. Premium expires at the end of
+  this day (West Africa Time). If unset or already past, premium falls back to
+  **120 days** from the purchase date.
+
+Set them for deploy with, for example:
+
+```bash
+firebase functions:secrets:set PAYSTACK_SECRET_KEY
+# and set SEMESTER_END via your functions environment configuration
+```
+
+After deploy, add the **webhook URL** in your Paystack dashboard
+(Settings → API Keys & Webhooks) pointing at the `paystackWebhook` function URL.
+It validates the `x-paystack-signature` HMAC, so only genuine Paystack events
+grant premium — the safety net for when a user closes the tab before the
+in-page callback runs.
+
+### Security rules — tested, not just written
+
+`firestore.rules` forbids the client from ever writing scoring/premium fields
+(`isPremium`, `totalMinutes`, streaks, session `verifiedMinutes`/`status`, …) or
+`payments`. Those are written only by Cloud Functions. The proof lives in the
+rules test: signed in as a real user it tries to set `isPremium: true` and
+`totalMinutes: 99999` from the client and confirms both are rejected.
 
 ## Scripts
 

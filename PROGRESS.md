@@ -137,8 +137,69 @@ refreshing the page, and end with an accurate, un-fakeable verified-minute count
 - Scheduled functions are written but only run on a real deploy / with the
   pubsub emulator; their logic is unit-tested directly.
 
+## ✅ Phase 3 — Payments & security lockdown (complete)
+
+**Goal:** premium works end to end, and the database cannot be cheated from the
+browser console.
+
+### What was built
+
+- **Firestore security lockdown (`firestore.rules`):**
+  - `users`: readable by any signed-in user; a user may **create** their own doc
+    only with all scoring/premium fields at safe defaults, and may **update**
+    only `displayName`/`school`/`department`/`level`/`photoURL`
+    (via `diff().affectedKeys().hasOnly(...)`). `isPremium`, `totalMinutes`,
+    streaks, etc. are rejected on every client write.
+  - `sessions`: private to the owner; **client cannot create** (only the
+    `startSession` function does) and may update **only** `activeSeconds`,
+    `lastHeartbeat`, `checkInsPassed`, `checkInsFailed` — never
+    `verifiedMinutes` or `status`.
+  - `payments`: read-your-own only, **never** client-writable.
+  - `leaderboards`: read-only to clients (written by functions in Phase 4).
+  - Composite indexes for the scheduled queries in `firestore.indexes.json`.
+- **Paystack payments:**
+  - Client `Premium` page + `paystack.js` Inline loader (lazy-loaded script,
+    public key from env). Handles cancelled, failed, network-drop, and a
+    manual **"Verify my payment"** recovery path.
+  - `verifyPayment` (callable): verifies the transaction with Paystack's API
+    using the secret key, checks `status==='success'` + amount `100000` kobo +
+    currency, guards against reference reuse and cross-account claims (email
+    match), then grants premium and writes `payments/{reference}` atomically.
+  - `paystackWebhook` (HTTP): validates the `x-paystack-signature`
+    HMAC-SHA512 and grants premium as a backup path.
+  - `premiumExpiresAt`: configurable `SEMESTER_END`, falling back to +120 days
+    from purchase.
+
+### Verified (not just written)
+
+- **Rules proof** (`scratchpad` client-SDK test, the brief's explicit ask):
+  signed in as a real user, attempts to set `isPremium: true`,
+  `totalMinutes: 99999`, `currentStreak`, forge a `payments` doc, create a
+  session, and set `verifiedMinutes`/`status` on a session — **all rejected**;
+  legitimate `displayName` edit and `activeSeconds`/heartbeat update — allowed.
+- **Payment logic tests** (`functions/test-payments.mjs`): amount/status/
+  currency validation, `computePremiumExpiry` (semester date + 120-day
+  fallback), HMAC signature accept/reject, and `grantPremium` — grants once,
+  idempotent on reference, blocks claiming another account's payment.
+- Phase 1 + Phase 2 e2e still pass **under the strict rules** (register still
+  creates the profile doc within the create rule; session heartbeats still
+  update). Premium page renders cleanly with payments unconfigured.
+
+### Deliberate deviations / decisions
+
+- **Premium expiry:** `SEMESTER_END` with a +120-day fallback (my default,
+  since the question tool dropped mid-ask — easy to change if you'd prefer a
+  fixed date only or pure N-days).
+- **Cross-account payment guard** added (email must match) — not in the brief,
+  but it closes a real reference-reuse hole.
+
+### Needed from you for a live deploy
+
+- Enable the **Blaze** plan (Functions + outbound Paystack calls).
+- Set `VITE_PAYSTACK_PUBLIC_KEY` (client) and `PAYSTACK_SECRET_KEY` +
+  optional `SEMESTER_END` (functions). Add the webhook URL in Paystack.
+
 ## Later phases
 
-- **Phase 3** — Paystack payments + Firestore security lockdown (tested, proven).
 - **Phase 4** — Leaderboards, streaks (Africa/Lagos day boundaries), groups, profile.
 - **Phase 5** — PWA, push notifications, shareable cards, bundle optimisation.

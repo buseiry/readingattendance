@@ -19,6 +19,7 @@ import Register from './pages/Register';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Session from './pages/Session';
+import Premium from './pages/Premium';
 import Placeholder from './pages/Placeholder';
 import NotFound from './pages/NotFound';
 
@@ -52,10 +53,7 @@ export default function App() {
                   path={ROUTES.PROFILE}
                   element={<Placeholder title="Your profile" phase="Phase 4" emoji="👤" />}
                 />
-                <Route
-                  path={ROUTES.PREMIUM}
-                  element={<Placeholder title="Go Premium" phase="Phase 3" emoji="⭐" />}
-                />
+                <Route path={ROUTES.PREMIUM} element={<Premium />} />
                 <Route
                   path={ROUTES.GROUPS}
                   element={<Placeholder title="Study groups" phase="Phase 4" emoji="👥" />}

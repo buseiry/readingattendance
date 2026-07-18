@@ -1,20 +1,85 @@
 rules_version = '2';
 
 // ---------------------------------------------------------------------------
-// TEMPORARY DEVELOPMENT RULES — Phase 1.
+// ReadingStreak security rules (Phase 3 lockdown).
 //
-// These rules only require a user to be signed in. They DO NOT yet protect the
-// scoring fields (totalMinutes, isPremium, streaks, …). That hardening — the
-// diff().affectedKeys() guards, payments lockdown, and session-write limits —
-// is the core of Phase 3, and will be tested with the emulator to prove a user
-// cannot cheat their own database from the browser console.
-//
-// Do not deploy these to production as-is.
+// The guiding rule: the CLIENT may never write anything that decides rank or
+// unlocks premium. Those fields are written ONLY by Cloud Functions, which use
+// the Admin SDK and bypass these rules. Everything a browser can do is spelled
+// out below; anything not explicitly allowed is denied by default.
 // ---------------------------------------------------------------------------
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.auth != null;
+
+    function signedIn() {
+      return request.auth != null;
     }
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // The ONLY profile fields a user may change on their own document.
+    function editableUserKeys() {
+      return ['displayName', 'school', 'department', 'level', 'photoURL'];
+    }
+
+    // On profile creation, every scoring/premium field must start at its safe
+    // default. This stops a user from creating their doc with isPremium=true or
+    // totalMinutes=99999 in the very first write.
+    function validNewUser(data, uid) {
+      return request.auth.uid == uid
+        && data.isPremium == false
+        && data.paystackRef == ''
+        && data.premiumExpiresAt == null
+        && data.totalMinutes == 0
+        && data.weeklyMinutes == 0
+        && data.dailyMinutes == 0
+        && data.currentStreak == 0
+        && data.longestStreak == 0
+        && data.sessionsCompleted == 0
+        && data.activeSession == false
+        && data.activeSessionId == '';
+    }
+
+    match /users/{uid} {
+      // Public profiles + leaderboard entries are readable by any signed-in user.
+      allow read: if signedIn();
+      allow create: if isOwner(uid) && validNewUser(request.resource.data, uid);
+      // Updates may only touch the editable profile fields. Any attempt to
+      // change isPremium / totalMinutes / streaks / etc. changes an affected key
+      // outside this set, so hasOnly() fails and the write is rejected.
+      allow update: if isOwner(uid)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(editableUserKeys());
+      allow delete: if false;
+    }
+
+    match /sessions/{sessionId} {
+      // A session is private to its owner.
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      // Sessions are created ONLY by the startSession Cloud Function.
+      allow create: if false;
+      // The client may update ONLY the live-tracking fields — never
+      // verifiedMinutes, status, startTime, or userId.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['activeSeconds', 'lastHeartbeat', 'checkInsPassed', 'checkInsFailed']);
+      allow delete: if false;
+    }
+
+    match /payments/{reference} {
+      // A user may read their own payment records; nobody writes from the client.
+      allow read: if signedIn() && resource.data.userId == request.auth.uid;
+      allow write: if false;
+    }
+
+    match /leaderboards/{doc} {
+      // Precomputed by Cloud Functions (Phase 4); read-only to clients.
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Anything not matched above is denied by default.
   }
 }

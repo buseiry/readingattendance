@@ -10,13 +10,17 @@
 // time pass faster — so the server wall-clock is an honest ceiling. On top of
 // that we enforce a per-session minimum/maximum and a per-day cap.
 
-import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { onCall, onRequest, HttpsError } from 'firebase-functions/v2/https';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue, Timestamp } from 'firebase-admin/firestore';
+import crypto from 'node:crypto';
 
 initializeApp();
 const db = getFirestore();
+
+// Premium price in kobo (₦1,000). Paystack works in the smallest currency unit.
+const PREMIUM_AMOUNT_KOBO = 100000;
 
 // --- Rules (keep MIN/MAX/CAP in sync with src/lib/sessionConstants.js) -------
 const MIN_SESSION_MINUTES = 10;
@@ -244,6 +248,158 @@ export async function runAbandonSweep(now = Timestamp.now()) {
 export const flagAnomalies = onSchedule('every 24 hours', async () => {
   await runAnomalyScan();
 });
+
+// ===========================================================================
+// PAYMENTS (Paystack)
+// ===========================================================================
+//
+// Trust boundary again: premium is granted ONLY after the server confirms a
+// real, successful ₦1,000 payment with Paystack, and each reference can be
+// redeemed once. The client can call these, but it cannot set isPremium itself
+// (the security rules forbid it).
+
+// When does a purchased premium expire? Configurable via the SEMESTER_END env
+// var (e.g. "2026-09-30"). If that date is unset or already past, we fall back
+// to 120 days from purchase so a late payer isn't short-changed.
+export function computePremiumExpiry(now = new Date()) {
+  const cfg = process.env.SEMESTER_END;
+  if (cfg) {
+    const end = new Date(`${cfg}T23:59:59+01:00`); // end of day, West Africa Time
+    if (!Number.isNaN(end.getTime()) && end > now) return end;
+  }
+  return new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
+}
+
+// Is a Paystack "verify" data payload a valid premium purchase?
+export function evaluateVerification(data) {
+  if (!data) return { ok: false, reason: 'No payment data.' };
+  if (data.status !== 'success') return { ok: false, reason: 'Payment was not successful.' };
+  if (data.amount !== PREMIUM_AMOUNT_KOBO) return { ok: false, reason: 'Wrong payment amount.' };
+  if ((data.currency || 'NGN') !== 'NGN') return { ok: false, reason: 'Wrong currency.' };
+  return { ok: true };
+}
+
+// Grants premium for a verified transaction, once. Idempotent on `reference`.
+// Also guards against one user redeeming another user's reference by requiring
+// the paying email to match the account email.
+export async function grantPremium({ uid, email, reference, data }) {
+  const paymentRef = db.collection('payments').doc(reference);
+  const userRef = db.collection('users').doc(uid);
+
+  return db.runTransaction(async (tx) => {
+    const existing = await tx.get(paymentRef);
+    if (existing.exists && existing.data().status === 'success') {
+      return { granted: false, alreadyRedeemed: true };
+    }
+
+    // The email on the transaction must match the account claiming it.
+    const payerEmail = (data.customer?.email || data.email || '').toLowerCase();
+    if (email && payerEmail && payerEmail !== email.toLowerCase()) {
+      throw new HttpsError('permission-denied', 'This payment belongs to a different account.');
+    }
+
+    const now = new Date();
+    const expiry = Timestamp.fromDate(computePremiumExpiry(now));
+
+    tx.set(paymentRef, {
+      userId: uid,
+      email: payerEmail || email || '',
+      amount: data.amount,
+      currency: data.currency || 'NGN',
+      status: 'success',
+      paystackData: data,
+      verifiedAt: FieldValue.serverTimestamp(),
+    });
+    tx.set(
+      userRef,
+      { isPremium: true, paystackRef: reference, premiumExpiresAt: expiry },
+      { merge: true },
+    );
+
+    return { granted: true, alreadyRedeemed: false, expiresAt: expiry };
+  });
+}
+
+// Validates a Paystack webhook signature (HMAC-SHA512 of the raw body).
+export function verifyPaystackSignature(rawBody, signature, secret) {
+  if (!signature || !secret) return false;
+  const hash = crypto.createHmac('sha512', secret).update(rawBody).digest('hex');
+  // Constant-time compare to avoid timing leaks.
+  const a = Buffer.from(hash);
+  const b = Buffer.from(signature);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// Calls Paystack to verify a transaction by reference. Kept tiny and separate
+// so the surrounding logic (evaluate + grant) can be tested without the network.
+async function fetchPaystackVerification(reference, secret) {
+  const res = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${secret}` },
+  });
+  const json = await res.json();
+  if (!json.status) throw new HttpsError('unavailable', 'Could not verify with Paystack.');
+  return json.data;
+}
+
+// --- Callable: verify a payment the client just made ------------------------
+// Also serves as the "I paid but it didn't unlock" recovery path — calling it
+// again with the same reference is safe (idempotent).
+export const verifyPayment = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Please log in.');
+
+  const reference = String(request.data?.reference || '').trim();
+  if (!reference) throw new HttpsError('invalid-argument', 'Missing payment reference.');
+
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  if (!secret) throw new HttpsError('failed-precondition', 'Payments are not configured yet.');
+
+  const data = await fetchPaystackVerification(reference, secret);
+  const verdict = evaluateVerification(data);
+  if (!verdict.ok) throw new HttpsError('failed-precondition', verdict.reason);
+
+  const result = await grantPremium({
+    uid,
+    email: request.auth.token.email,
+    reference,
+    data,
+  });
+  return { premium: true, alreadyRedeemed: result.alreadyRedeemed };
+});
+
+// --- Webhook: Paystack's server-to-server confirmation ----------------------
+// The safety net for when a user closes the tab before the callback runs.
+export const paystackWebhook = onRequest(async (req, res) => {
+  const secret = process.env.PAYSTACK_SECRET_KEY;
+  const signature = req.headers['x-paystack-signature'];
+
+  // req.rawBody is the exact bytes Paystack signed — use it, not the parsed body.
+  if (!verifyPaystackSignature(req.rawBody, signature, secret)) {
+    res.status(401).send('Invalid signature');
+    return;
+  }
+
+  const event = req.body;
+  if (event?.event === 'charge.success') {
+    const data = event.data;
+    const verdict = evaluateVerification(data);
+    if (verdict.ok) {
+      const email = (data.customer?.email || data.email || '').toLowerCase();
+      const uid = await findUidByEmail(email);
+      if (uid) {
+        await grantPremium({ uid, email, reference: data.reference, data });
+      }
+    }
+  }
+  // Always 200 so Paystack doesn't keep retrying a handled event.
+  res.status(200).send('ok');
+});
+
+async function findUidByEmail(email) {
+  if (!email) return null;
+  const snap = await db.collection('users').where('email', '==', email).limit(1).get();
+  return snap.empty ? null : snap.docs[0].id;
+}
 
 export async function runAnomalyScan() {
   const recent = await db

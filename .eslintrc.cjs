@@ -17,4 +17,13 @@ module.exports = {
   rules: {
     'react/prop-types': 'off', // We're not using PropTypes in this project.
   },
+  overrides: [
+    {
+      // Cloud Functions run on Node, not in the browser.
+      files: ['functions/**/*.js', 'functions/**/*.mjs'],
+      env: { node: true, browser: false },
+      settings: { react: { version: '999.999.999' } },
+      extends: ['eslint:recommended'],
+    },
+  ],
 };
