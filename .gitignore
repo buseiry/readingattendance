@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Secrets — never commit real config. Only .env.example is tracked.
+.env
+.env.local
+.env.*.local
+
+# Firebase emulator/runtime artefacts
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+*-debug.log
+
+# Editor / OS junk
+.vscode/
+.idea/
+.DS_Store

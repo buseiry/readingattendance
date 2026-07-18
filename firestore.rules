@@ -1,0 +1,20 @@
+rules_version = '2';
+
+// ---------------------------------------------------------------------------
+// TEMPORARY DEVELOPMENT RULES — Phase 1.
+//
+// These rules only require a user to be signed in. They DO NOT yet protect the
+// scoring fields (totalMinutes, isPremium, streaks, …). That hardening — the
+// diff().affectedKeys() guards, payments lockdown, and session-write limits —
+// is the core of Phase 3, and will be tested with the emulator to prove a user
+// cannot cheat their own database from the browser console.
+//
+// Do not deploy these to production as-is.
+// ---------------------------------------------------------------------------
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
