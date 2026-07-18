@@ -51,10 +51,15 @@ async function ensureUserProfile(user, extra = {}) {
     premiumExpiresAt: null,
     totalMinutes: 0,
     weeklyMinutes: 0,
+    dailyMinutes: 0,
+    dailyDate: '',
     currentStreak: 0,
     longestStreak: 0,
     lastReadDate: '',
     sessionsCompleted: 0,
+    // Session engine bookkeeping (server-writable).
+    activeSession: false,
+    activeSessionId: '',
     createdAt: serverTimestamp(),
   });
 }
@@ -62,12 +67,8 @@ async function ensureUserProfile(user, extra = {}) {
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
-  // Two separate "have we resolved this yet?" flags. We must not let route
-  // guards decide anything until BOTH auth state and (for a logged-in user)
-  // the profile document have loaded — otherwise they act on stale data and
-  // bounce the user to the wrong screen. This is what fixes the onboarding race.
   const [authResolved, setAuthResolved] = useState(false);
-  const [profileResolved, setProfileResolved] = useState(false);
+  const [profileError, setProfileError] = useState(false);
 
   // Subscribe to auth state once, on mount.
   useEffect(() => {
@@ -82,33 +83,25 @@ export function AuthProvider({ children }) {
   // It's a single-document listener, so it's cheap and stays in sync when
   // onboarding (or later, a Cloud Function) updates the doc.
   useEffect(() => {
-    // New user (or logout): the profile is unknown again until proven otherwise.
-    setProfileResolved(false);
     setProfile(null);
-
-    if (!user) {
-      setProfileResolved(true);
-      return undefined;
-    }
+    setProfileError(false);
+    if (!user) return undefined;
 
     const ref = doc(db, 'users', user.uid);
     const unsubscribe = onSnapshot(
       ref,
-      (snap) => {
-        setProfile(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-        setProfileResolved(true);
-      },
-      () => {
-        // On a read error, don't hang the whole app on a spinner forever.
-        setProfileResolved(true);
-      },
+      (snap) => setProfile(snap.exists() ? { id: snap.id, ...snap.data() } : { id: snap.id }),
+      () => setProfileError(true), // don't hang forever on a read error
     );
     return unsubscribe;
   }, [user]);
 
-  // The app is "loading" until auth resolves, and — if someone is logged in —
-  // until their profile has loaded too.
-  const loading = !authResolved || (Boolean(user) && !profileResolved);
+  // The app is "loading" until auth resolves, and — for a logged-in user —
+  // until we have that user's OWN profile. We compare the loaded profile's id
+  // to the current uid (rather than a separate "resolved" flag) so there is no
+  // render window where a stale flag lets a route guard act on the wrong data.
+  const loading =
+    !authResolved || (Boolean(user) && !profileError && profile?.id !== user?.uid);
 
   async function register({ email, password, displayName }) {
     const cred = await createUserWithEmailAndPassword(auth, email, password);

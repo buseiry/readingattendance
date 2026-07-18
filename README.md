@@ -30,8 +30,11 @@ Built mobile-first for cheap Android phones on patchy, expensive data.
 ## Local setup
 
 ```bash
-# 1. Install dependencies
+# 1. Install app dependencies
 npm install
+
+# 1b. Install Cloud Functions dependencies (used from Phase 2 on)
+cd functions && npm install && cd ..
 
 # 2. Create your local env file from the template
 cp .env.example .env

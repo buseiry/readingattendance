@@ -18,6 +18,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
+import Session from './pages/Session';
 import Placeholder from './pages/Placeholder';
 import NotFound from './pages/NotFound';
 
@@ -35,14 +36,14 @@ export default function App() {
           <Route element={<RequireAuth />}>
             <Route path={ROUTES.ONBOARDING} element={<Onboarding />} />
 
-            {/* 3. Logged in + onboarded, inside the app shell */}
+            {/* 3. Logged in + onboarded */}
             <Route element={<RequireOnboarding />}>
+              {/* The session screen runs full-screen (its own dark surface),
+                  so it lives outside the light nav Layout. */}
+              <Route path={ROUTES.SESSION} element={<Session />} />
+
               <Route element={<Layout />}>
                 <Route path={ROUTES.DASHBOARD} element={<Dashboard />} />
-                <Route
-                  path={ROUTES.SESSION}
-                  element={<Placeholder title="Reading session" phase="Phase 2" emoji="⏱️" />}
-                />
                 <Route
                   path={ROUTES.LEADERBOARD}
                   element={<Placeholder title="Leaderboards" phase="Phase 4" emoji="🏆" />}

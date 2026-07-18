@@ -63,13 +63,79 @@ log back in (skips onboarding). `npm run build` and `npm run lint` are clean.
 
 ---
 
-## ⏳ Phase 2 — The session engine (next)
+## ✅ Phase 2 — The session engine (complete)
 
-Server-authoritative timing, heartbeats, visibility-pause, random check-ins,
-wake lock, offline tolerance, and accurate verified-minute counting. See the
-brief. **Open design questions to settle before building:** how intrusive the
-random check-ins should be, and the offline-resume vs. 3-minute-abandonment
-reconciliation policy.
+**Goal:** run a real reading session that survives locking the phone and
+refreshing the page, and end with an accurate, un-fakeable verified-minute count.
+
+### What was built
+
+- **Cloud Functions (`/functions`, Node 20) — the trust boundary:**
+  - `startSession` (callable) — server-authoritative start; stamps `startTime`
+    with server time and enforces cooldown + "one active session" in a
+    transaction.
+  - `endSession` (callable) — computes
+    `verifiedMinutes = min(clientActiveSeconds, serverWallClock)`, then applies
+    the 10-min floor, 180-min ceiling, and 480-min/day cap (Africa/Lagos day),
+    crediting the user atomically and idempotently.
+  - `sweepAbandonedSessions` (scheduled, every 2 min) — closes sessions with no
+    heartbeat past a 12-min threshold, crediting only up to the last heartbeat.
+  - `flagAnomalies` (scheduled, daily) — flags sessions whose reported active
+    time wildly exceeds wall-clock.
+- **Client session engine (`useSession` hook):** 1-second accrual that only
+  counts while the tab is visible and un-paused; Firestore sync + heartbeat
+  every 30s; Page Visibility pause/resume; **gentle non-blocking check-ins**
+  (prompt keeps counting; ignored for 90s → pause accrual, not the session);
+  Screen Wake Lock with graceful fallback; **grace-window offline resume** via
+  Firestore offline persistence + an IndexedDB mirror.
+- **Session screen:** calm, dark, large timer; optional "what are you reading?";
+  paused/check-in states; clear counted/didn't-count result. Runs full-screen
+  outside the light nav shell.
+
+### Decisions & deviations (your call was applied)
+
+- **Check-ins: gentle & non-blocking** (not the strict blocking modal in the
+  brief) — better for deep reading; the server caps are the real anti-cheat.
+- **Offline: grace-window resume** — keep timing locally and rejoin the same
+  session within 10 min; abandonment threshold is 12 min so a reconnecting
+  client still finds its session open.
+- **Session start is now a Cloud Function** (brief had the client create it) —
+  server-stamped `startTime` closes a forged-timestamp hole and centralises the
+  cooldown/limit checks. Flagged for your awareness.
+
+### Verified (not just written)
+
+- **Functions test** (`functions/test-functions.mjs`, against the emulator):
+  proves the ceiling and caps — a tampered client claiming 999999 seconds is
+  capped to the real 30-min wall-clock; 180-min max; sub-10-min doesn't count;
+  daily cap; and the abandon-sweep credits only up to the last heartbeat and is
+  idempotent. All pass.
+- **Engine E2E** (Playwright against the production build + live emulators):
+  start → server flags user → timer accrues → hide tab pauses → return resumes
+  → **refresh resumes the same session** → end shows the correct result →
+  cooldown blocks an immediate restart. All pass, and Phase 1's flow still
+  passes (no regression).
+
+### Bug fixed during the phase
+
+- Fixed a **route-guard timing bug** (surfaced by the engine E2E): on a fresh
+  page load, `onAuthStateChanged` set `user` one render before the profile
+  effect reset its flag, so `loading` briefly read `false` with an empty
+  profile and the onboarding guard bounced `/session` → `/onboarding`. Now
+  `loading` is derived by comparing the loaded profile's `id` to the current
+  `uid`, which can't lag.
+
+### Known issues / deferred
+
+- **Firestore rules still dev-permissive** — the client can currently write
+  session fields freely. Locking `verifiedMinutes`/`status`/scoring fields to
+  server-only is Phase 3. (The endSession ceiling already neutralises inflated
+  `activeSeconds`, so the leaderboard maths is safe today; the rules make the
+  whole database tamper-proof.)
+- Data model gained server-managed `dailyMinutes` + `dailyDate` (for the daily
+  cap) and `activeSessionId` (for resume).
+- Scheduled functions are written but only run on a real deploy / with the
+  pubsub emulator; their logic is unit-tested directly.
 
 ## Later phases
 
