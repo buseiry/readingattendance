@@ -22,6 +22,13 @@ const db = getFirestore();
 // Premium price in kobo (₦1,000). Paystack works in the smallest currency unit.
 const PREMIUM_AMOUNT_KOBO = 100000;
 
+// A day "counts" toward a streak once the user logs this many verified minutes.
+const STREAK_MIN_MINUTES = 20;
+// How many entries each leaderboard holds.
+const LEADERBOARD_SIZE = 100;
+// How many users we scan when rebuilding leaderboards (cheap at this scale).
+const LEADERBOARD_SCAN = 1000;
+
 // --- Rules (keep MIN/MAX/CAP in sync with src/lib/sessionConstants.js) -------
 const MIN_SESSION_MINUTES = 10;
 const MAX_SESSION_MINUTES = 180;
@@ -39,6 +46,30 @@ const ABANDON_THRESHOLD_SECONDS = 12 * 60;
 export function lagosDateString(date) {
   const shifted = new Date(date.getTime() + 60 * 60 * 1000);
   return shifted.toISOString().slice(0, 10);
+}
+
+// Add (or subtract) whole days from a "YYYY-MM-DD" string. Used for streak
+// "was yesterday?" checks. Works on the UTC calendar of the date string, which
+// is fine because our date strings are already Lagos-local.
+export function addDaysToDateStr(dateStr, delta) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+// A stable, doc-id-safe slug for a school leaderboard. Uses the short code
+// before the em dash (e.g. "LASUSTECH — ..." -> "lasustech"); otherwise
+// slugifies the whole name. Client and server must agree — see src/lib/slug.js.
+export function slugifySchool(school) {
+  if (!school) return 'unknown';
+  const head = school.split('—')[0].trim() || school;
+  return (
+    head
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'unknown'
+  );
 }
 
 // The shared crediting maths, used by both endSession and the abandonment
@@ -69,6 +100,22 @@ export function computeCredit({ activeSeconds, startTime, endTime, user }) {
   const creditedMinutes = qualifies ? Math.min(cappedMinutes, remainingToday) : 0;
 
   return { qualifies, creditedMinutes, cappedMinutes, wallClockSeconds, today };
+}
+
+// Pure streak update. Given the user's current streak state, today's Lagos
+// date, and today's running verified-minute total, returns the new streak
+// fields. A day counts once it reaches STREAK_MIN_MINUTES.
+export function computeStreakUpdate(user, today, newDailyTotal) {
+  let currentStreak = user.currentStreak || 0;
+  let longestStreak = user.longestStreak || 0;
+  let lastReadDate = user.lastReadDate || '';
+  if (newDailyTotal >= STREAK_MIN_MINUTES && lastReadDate !== today) {
+    const yesterday = addDaysToDateStr(today, -1);
+    currentStreak = lastReadDate === yesterday ? currentStreak + 1 : 1;
+    longestStreak = Math.max(longestStreak, currentStreak);
+    lastReadDate = today;
+  }
+  return { currentStreak, longestStreak, lastReadDate };
 }
 
 // Applies a completed/abandoned session's credit to the user, transactionally.
@@ -103,22 +150,34 @@ async function finalizeSession(sessionRef, { status, activeSeconds, endTime }) {
       pointsAwarded: creditedMinutes > 0,
     });
 
-    // Roll the daily counter over if we've crossed into a new Lagos day.
-    const dailyBase = user.dailyDate === today ? FieldValue.increment(creditedMinutes) : creditedMinutes;
+    // Compute the day's running total explicitly (we need the resulting value
+    // for the streak check, so we can't rely on FieldValue.increment here).
+    const dailySoFar = user.dailyDate === today ? user.dailyMinutes || 0 : 0;
+    const newDailyTotal = dailySoFar + creditedMinutes;
+
+    // Streak: the first time a user crosses 20 verified minutes in a Lagos day,
+    // extend (or restart) their streak. lastReadDate marks the last counted day.
+    const { currentStreak, longestStreak, lastReadDate } = computeStreakUpdate(
+      user,
+      today,
+      newDailyTotal,
+    );
 
     tx.set(
       userRef,
       {
         totalMinutes: FieldValue.increment(creditedMinutes),
         weeklyMinutes: FieldValue.increment(creditedMinutes),
-        dailyMinutes: dailyBase,
+        dailyMinutes: newDailyTotal,
         dailyDate: today,
         sessionsCompleted: FieldValue.increment(qualifies ? 1 : 0),
+        currentStreak,
+        longestStreak,
+        lastReadDate,
         activeSession: false,
         activeSessionId: '',
         lastSessionEndAt: endTime,
         lastActive: endTime,
-        ...(creditedMinutes > 0 ? { lastReadDate: today } : {}),
       },
       { merge: true },
     );
@@ -421,3 +480,195 @@ export async function runAnomalyScan() {
   }
   return { flagged };
 }
+
+// ===========================================================================
+// STREAKS & RETENTION (scheduled, Africa/Lagos)
+// ===========================================================================
+
+// Break the streak of anyone who didn't read yesterday. Streaks are EXTENDED
+// live in finalizeSession; this nightly job only handles the "missed a day"
+// case, which the client can't trigger on its own. Runs at 00:05 Lagos time
+// (just after midnight) so "yesterday" is a full, finished day.
+export const updateStreaks = onSchedule(
+  { schedule: '5 0 * * *', timeZone: 'Africa/Lagos' },
+  async () => {
+    await runStreakMaintenance();
+  },
+);
+
+export async function runStreakMaintenance(now = new Date()) {
+  const today = lagosDateString(now);
+  const yesterday = addDaysToDateStr(today, -1);
+
+  // Only users with a live streak can lose one.
+  const snap = await db.collection('users').where('currentStreak', '>', 0).get();
+  let broken = 0;
+  const batch = db.batch();
+  for (const doc of snap.docs) {
+    const last = doc.data().lastReadDate || '';
+    // If their last counted day is before yesterday, they missed a day.
+    if (last < yesterday) {
+      batch.update(doc.ref, { currentStreak: 0 });
+      broken += 1;
+    }
+  }
+  if (broken > 0) await batch.commit();
+  return { broken };
+}
+
+// Reset weekly minutes every Monday at 00:00 Lagos time so newcomers can still
+// win the weekly board.
+export const resetWeeklyMinutes = onSchedule(
+  { schedule: '0 0 * * 1', timeZone: 'Africa/Lagos' },
+  async () => {
+    await runWeeklyReset();
+  },
+);
+
+export async function runWeeklyReset() {
+  const snap = await db.collection('users').where('weeklyMinutes', '>', 0).get();
+  let reset = 0;
+  // Batch in chunks of 400 (Firestore batch limit is 500).
+  let batch = db.batch();
+  for (const doc of snap.docs) {
+    batch.update(doc.ref, { weeklyMinutes: 0 });
+    reset += 1;
+    if (reset % 400 === 0) {
+      await batch.commit();
+      batch = db.batch();
+    }
+  }
+  if (reset % 400 !== 0) await batch.commit();
+  return { reset };
+}
+
+// ===========================================================================
+// LEADERBOARDS (precomputed — clients never scan the users collection)
+// ===========================================================================
+
+function toEntry(doc) {
+  const u = doc.data();
+  return {
+    uid: doc.id,
+    displayName: u.displayName || 'Reader',
+    school: u.school || '',
+    totalMinutes: u.totalMinutes || 0,
+    weeklyMinutes: u.weeklyMinutes || 0,
+    isPremium: !!u.isPremium,
+  };
+}
+
+// Rebuilt on a schedule into leaderboards/{global|weekly|<schoolSlug>}. Reading
+// these is a single cheap doc read for the client, instead of an orderBy scan
+// across every user.
+export const rebuildLeaderboards = onSchedule('every 15 minutes', async () => {
+  await runRebuildLeaderboards();
+});
+
+export async function runRebuildLeaderboards() {
+  // All-time board (also feeds the per-school boards).
+  const byTotal = await db
+    .collection('users')
+    .orderBy('totalMinutes', 'desc')
+    .limit(LEADERBOARD_SCAN)
+    .get();
+
+  const global = [];
+  const bySchool = new Map(); // slug -> { school, entries: [] }
+
+  for (const doc of byTotal.docs) {
+    const e = toEntry(doc);
+    if (e.totalMinutes <= 0) continue;
+
+    // Global board is premium-only.
+    if (e.isPremium && global.length < LEADERBOARD_SIZE) global.push(e);
+
+    // Per-school board (free — the free tier's hook).
+    const slug = slugifySchool(e.school);
+    if (!bySchool.has(slug)) bySchool.set(slug, { school: e.school, entries: [] });
+    const bucket = bySchool.get(slug);
+    if (bucket.entries.length < LEADERBOARD_SIZE) bucket.entries.push(e);
+  }
+
+  // Weekly board (separate ordering).
+  const byWeek = await db
+    .collection('users')
+    .orderBy('weeklyMinutes', 'desc')
+    .limit(LEADERBOARD_SIZE)
+    .get();
+  const weekly = byWeek.docs.map(toEntry).filter((e) => e.weeklyMinutes > 0);
+
+  const now = FieldValue.serverTimestamp();
+  const batch = db.batch();
+  batch.set(db.collection('leaderboards').doc('global'), { entries: global, updatedAt: now });
+  batch.set(db.collection('leaderboards').doc('weekly'), { entries: weekly, updatedAt: now });
+  for (const [slug, { school, entries }] of bySchool) {
+    batch.set(db.collection('leaderboards').doc(slug), { school, entries, updatedAt: now });
+  }
+  await batch.commit();
+
+  return { global: global.length, weekly: weekly.length, schools: bySchool.size };
+}
+
+// ===========================================================================
+// STUDY GROUPS (premium)
+// ===========================================================================
+
+function makeInviteCode() {
+  // 6 unambiguous chars (no 0/O/1/I).
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 6; i += 1) code += alphabet[Math.floor(Math.random() * alphabet.length)];
+  return code;
+}
+
+async function requirePremium(uid) {
+  const snap = await db.collection('users').doc(uid).get();
+  if (!snap.exists || !snap.data().isPremium) {
+    throw new HttpsError('permission-denied', 'Study groups are a premium feature.');
+  }
+}
+
+export const createGroup = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Please log in.');
+  await requirePremium(uid);
+
+  const name = String(request.data?.name || '').trim().slice(0, 60);
+  if (!name) throw new HttpsError('invalid-argument', 'Please give your group a name.');
+
+  // Generate a code that isn't already in use (retry a few times).
+  let inviteCode;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    inviteCode = makeInviteCode();
+    const clash = await db.collection('groups').where('inviteCode', '==', inviteCode).limit(1).get();
+    if (clash.empty) break;
+    inviteCode = null;
+  }
+  if (!inviteCode) throw new HttpsError('internal', 'Could not create a group code, try again.');
+
+  const ref = await db.collection('groups').add({
+    name,
+    ownerId: uid,
+    inviteCode,
+    memberIds: [uid],
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  return { groupId: ref.id, inviteCode };
+});
+
+export const joinGroup = onCall(async (request) => {
+  const uid = request.auth?.uid;
+  if (!uid) throw new HttpsError('unauthenticated', 'Please log in.');
+  await requirePremium(uid);
+
+  const code = String(request.data?.inviteCode || '').trim().toUpperCase();
+  if (!code) throw new HttpsError('invalid-argument', 'Enter an invite code.');
+
+  const found = await db.collection('groups').where('inviteCode', '==', code).limit(1).get();
+  if (found.empty) throw new HttpsError('not-found', 'No group has that code.');
+
+  const groupRef = found.docs[0].ref;
+  await groupRef.update({ memberIds: FieldValue.arrayUnion(uid) });
+  return { groupId: groupRef.id, name: found.docs[0].data().name };
+});

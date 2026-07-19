@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { ROUTES } from '../lib/constants';
+import { formatMinutes } from '../lib/formatters';
 import { Button, Card, EmptyState } from '../components/ui';
 
 // A banner shown until the user verifies their email. Reading sessions stay
@@ -79,19 +80,21 @@ export default function Dashboard() {
 
       {!emailVerified && <VerifyEmailBanner />}
 
-      {/* Stats placeholders — real numbers land in Phase 4. */}
+      {/* Live stats from the user's profile. */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
         <Card>
           <p className="text-sm text-slate-500">Total time</p>
-          <p className="text-2xl font-bold">0h 0m</p>
+          <p className="text-2xl font-bold">{formatMinutes(profile?.totalMinutes)}</p>
         </Card>
         <Card>
           <p className="text-sm text-slate-500">Current streak</p>
-          <p className="text-2xl font-bold">0 days</p>
+          <p className="text-2xl font-bold">
+            {profile?.currentStreak || 0} day{(profile?.currentStreak || 0) === 1 ? '' : 's'}
+          </p>
         </Card>
         <Card>
           <p className="text-sm text-slate-500">Sessions</p>
-          <p className="text-2xl font-bold">0</p>
+          <p className="text-2xl font-bold">{profile?.sessionsCompleted || 0}</p>
         </Card>
       </div>
 

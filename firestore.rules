@@ -75,8 +75,15 @@ service cloud.firestore {
     }
 
     match /leaderboards/{doc} {
-      // Precomputed by Cloud Functions (Phase 4); read-only to clients.
+      // Precomputed by Cloud Functions; read-only to clients.
       allow read: if signedIn();
+      allow write: if false;
+    }
+
+    match /groups/{groupId} {
+      // Only members may read a group. Created/joined only via Cloud Functions
+      // (which enforce the premium requirement and manage membership).
+      allow read: if signedIn() && request.auth.uid in resource.data.memberIds;
       allow write: if false;
     }
 

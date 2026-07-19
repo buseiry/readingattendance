@@ -199,7 +199,56 @@ browser console.
 - Set `VITE_PAYSTACK_PUBLIC_KEY` (client) and `PAYSTACK_SECRET_KEY` +
   optional `SEMESTER_END` (functions). Add the webhook URL in Paystack.
 
+## ✅ Phase 4 — Leaderboards, streaks, groups, profile (complete)
+
+**Goal:** live, cheap-to-read leaderboards; streaks that increment and break
+correctly across a Lagos date boundary; study groups; a real profile page.
+
+### What was built
+
+- **Streaks (Africa/Lagos):**
+  - Extended **live** in `finalizeSession` the first time a user crosses 20
+    verified minutes in a Lagos day (pure, tested `computeStreakUpdate`).
+  - `updateStreaks` (scheduled 00:05 WAT) breaks streaks for anyone who missed
+    a day — the part the client can't do itself.
+  - `resetWeeklyMinutes` (scheduled Monday 00:00 WAT).
+- **Leaderboards (precomputed, never client-scanned):**
+  - `rebuildLeaderboards` (every 15 min) writes `leaderboards/global`
+    (premium-only, all-time), `leaderboards/weekly`, and per-school
+    `leaderboards/{schoolSlug}`.
+  - `useLeaderboard` reads one doc and computes the user's **own rank even
+    outside the top 100** via a single `count()` aggregation.
+  - `Leaderboard` page: School / This Week / Global tabs, self-highlight,
+    premium gate on Global.
+- **Study groups (premium):** `createGroup` / `joinGroup` callables (6-char
+  invite codes, premium-gated); `Groups` page to create, join by code, and see
+  a private per-group leaderboard. Rules: member-only read, function-only write.
+- **Profile page:** total time, current/longest streak, sessions, a rank
+  **badge**, and a **90-day GitHub-style heatmap** built from the user's own
+  session docs.
+- **Dashboard** now shows real stats.
+- Composite indexes added for the heatmap and rank-count queries.
+
+### Verified (not just written)
+
+- **Streak/leaderboard logic** (`functions/test-phase4.mjs`): day-boundary
+  streak math (extend / reset / already-counted / under-threshold / longest),
+  nightly break, weekly reset, and leaderboard rebuild (global premium-only +
+  sorted, per-school, weekly ordering).
+- **Groups** (`scratchpad/test-groups.mjs`): premium gate blocks non-premium,
+  create returns a 6-char code, join-by-code works, members see the group,
+  **non-members are denied**, bad codes rejected.
+- **UI smoke** (Playwright): Leaderboard tabs + self-highlight + Global (premium),
+  Profile stats/badge/heatmap, and Groups create — zero console errors.
+- Regression: rules proof, session engine, Phase 1 flow all still pass.
+
+### Known / deferred
+
+- Leaderboard rebuild scans up to 1000 users each run — fine at this scale;
+  revisit if the user base grows large.
+- Bundle is ~197KB gzipped initial; **Phase 5** adds route-level code splitting
+  to bring it well under 200KB and lazy-load Firestore/Paystack.
+
 ## Later phases
 
-- **Phase 4** — Leaderboards, streaks (Africa/Lagos day boundaries), groups, profile.
 - **Phase 5** — PWA, push notifications, shareable cards, bundle optimisation.

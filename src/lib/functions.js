@@ -6,6 +6,8 @@ import { functions } from './firebase';
 const _startSession = httpsCallable(functions, 'startSession');
 const _endSession = httpsCallable(functions, 'endSession');
 const _verifyPayment = httpsCallable(functions, 'verifyPayment');
+const _createGroup = httpsCallable(functions, 'createGroup');
+const _joinGroup = httpsCallable(functions, 'joinGroup');
 
 // Returns { sessionId }.
 export async function startReadingSession(bookTitle = '') {
@@ -24,5 +26,17 @@ export async function endReadingSession(sessionId, clientActiveSeconds) {
 // "I paid but it didn't unlock" recovery path. Returns { premium, alreadyRedeemed }.
 export async function verifyPayment(reference) {
   const res = await _verifyPayment({ reference });
+  return res.data;
+}
+
+// Creates a study group (premium). Returns { groupId, inviteCode }.
+export async function createGroup(name) {
+  const res = await _createGroup({ name });
+  return res.data;
+}
+
+// Joins a study group by invite code (premium). Returns { groupId, name }.
+export async function joinGroup(inviteCode) {
+  const res = await _joinGroup({ inviteCode });
   return res.data;
 }

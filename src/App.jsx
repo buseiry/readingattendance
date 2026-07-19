@@ -20,7 +20,9 @@ import Onboarding from './pages/Onboarding';
 import Dashboard from './pages/Dashboard';
 import Session from './pages/Session';
 import Premium from './pages/Premium';
-import Placeholder from './pages/Placeholder';
+import Leaderboard from './pages/Leaderboard';
+import Profile from './pages/Profile';
+import Groups from './pages/Groups';
 import NotFound from './pages/NotFound';
 
 export default function App() {
@@ -45,19 +47,10 @@ export default function App() {
 
               <Route element={<Layout />}>
                 <Route path={ROUTES.DASHBOARD} element={<Dashboard />} />
-                <Route
-                  path={ROUTES.LEADERBOARD}
-                  element={<Placeholder title="Leaderboards" phase="Phase 4" emoji="🏆" />}
-                />
-                <Route
-                  path={ROUTES.PROFILE}
-                  element={<Placeholder title="Your profile" phase="Phase 4" emoji="👤" />}
-                />
+                <Route path={ROUTES.LEADERBOARD} element={<Leaderboard />} />
+                <Route path={ROUTES.PROFILE} element={<Profile />} />
                 <Route path={ROUTES.PREMIUM} element={<Premium />} />
-                <Route
-                  path={ROUTES.GROUPS}
-                  element={<Placeholder title="Study groups" phase="Phase 4" emoji="👥" />}
-                />
+                <Route path={ROUTES.GROUPS} element={<Groups />} />
               </Route>
             </Route>
           </Route>
