@@ -1,9 +1,9 @@
 // Simple Session Management (No Cloud Functions Required)
 // Works with Firebase Free Tier
 
-import { initializeApp } from "firebase/app";
-import { getFirestore, doc, setDoc, updateDoc, serverTimestamp, getDoc, query, where, getDocs, orderBy, limit } from "firebase/firestore";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
+import { getFirestore, collection, doc, setDoc, updateDoc, serverTimestamp, getDoc, query, where, getDocs, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
+import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
 
 // Use your existing Firebase config
 const firebaseConfig = {
@@ -115,7 +115,7 @@ async function startSession() {
     }
     
     // Create session document
-    const sessionRef = doc(db, "sessions");
+    const sessionRef = doc(collection(db, "sessions"));
     activeSessionId = sessionRef.id;
     
     await setDoc(sessionRef, {

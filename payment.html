@@ -69,7 +69,7 @@
 		async function checkPaymentStatus(userId) {
 			try {
 				const userDoc = await db.collection('users').doc(userId).get();
-				if (userDoc.exists() && userDoc.data().paymentStatus) {
+				if (userDoc.exists && userDoc.data().paymentStatus) {
 					showPaymentStatus('You have already paid! Redirecting to dashboard...', 'success');
 					setTimeout(() => {
 						location.href = './dashboard.html';

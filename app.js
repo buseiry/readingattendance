@@ -57,7 +57,7 @@
 				const userRef = db.collection('users').doc(user.uid);
 				const userSnap = await userRef.get();
 				
-				if (userSnap.exists() && userSnap.data().activeSession) {
+				if (userSnap.exists && userSnap.data().activeSession) {
 					alert('You already have an active session!');
 					return;
 				}
@@ -74,7 +74,7 @@
 				// Update user document
 				await userRef.set({
 					email: user.email,
-					points: userSnap.exists() ? userSnap.data().points || 0 : 0,
+					points: userSnap.exists ? userSnap.data().points || 0 : 0,
 					activeSession: true,
 					lastActive: firebase.firestore.FieldValue.serverTimestamp()
 				}, { merge: true });
