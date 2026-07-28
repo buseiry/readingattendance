@@ -4,6 +4,7 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js";
 import { getFirestore, collection, doc, setDoc, updateDoc, serverTimestamp, getDoc, query, where, getDocs, orderBy, limit } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js";
 import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js";
+import { getFunctions, httpsCallable } from "https://www.gstatic.com/firebasejs/10.13.1/firebase-functions.js";
 
 // Use your existing Firebase config
 const firebaseConfig = {
@@ -19,6 +20,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
+const functions = getFunctions(app);
 
 let currentUser = null;
 let activeSessionId = null;
@@ -156,57 +158,30 @@ async function endSession() {
   }
   
   try {
-    const now = new Date();
-    const sessionDuration = (now - sessionStartTime) / (1000 * 60); // minutes
-    
-    // Minimum session duration (e.g., 5 minutes for testing, 60 for production)
-    const minDuration = 5; // Change to 60 for production
-    
-    if (sessionDuration < minDuration) {
-      alert(`Session must be at least ${minDuration} minutes long. Current: ${Math.round(sessionDuration)} minutes`);
-      return;
-    }
-    
-    // Update session document
-    const sessionRef = doc(db, "sessions", activeSessionId);
-    await updateDoc(sessionRef, {
-      endTime: serverTimestamp(),
-      completed: true,
-      durationMinutes: Math.round(sessionDuration)
-    });
-    
-    // Award points (1 point per completed session)
-    const userRef = doc(db, "users", currentUser.uid);
-    const userSnap = await getDoc(userRef);
-    const currentPoints = userSnap.exists() ? (userSnap.data().points || 0) : 0;
-    
-    await updateDoc(userRef, {
-      points: currentPoints + 1,
-      activeSession: false,
-      lastSessionCompleted: serverTimestamp(),
-      lastActive: serverTimestamp()
-    });
-    
-    // Update session with points awarded
-    await updateDoc(sessionRef, { pointsAwarded: true });
-    
+    // Points are awarded by the completeSession Cloud Function, which
+    // validates the session server-side (ownership, minimum duration, no
+    // double-award). The client cannot award points itself.
+    const completeSession = httpsCallable(functions, "completeSession");
+    const res = await completeSession({ sessionId: activeSessionId });
+    const data = res.data || {};
+
     // Reset UI
     document.getElementById('status').textContent = 'Session completed! Points awarded.';
     document.getElementById('startBtn').disabled = false;
     document.getElementById('endBtn').disabled = true;
-    
+
     // Stop timer
     stopTimer();
-    
-    alert(`Session completed! Duration: ${Math.round(sessionDuration)} minutes. You earned 1 point!`);
-    
+
+    alert(`Session completed! Duration: ${data.durationMinutes} minutes. You earned ${data.pointsAwarded} point!`);
+
     // Reset session variables
     activeSessionId = null;
     sessionStartTime = null;
-    
+
   } catch (error) {
     console.error('Error ending session:', error);
-    alert("Failed to end session. Please try again.");
+    alert(error.message || "Failed to end session. Please try again.");
   }
 }
 

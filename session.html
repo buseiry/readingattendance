@@ -26,13 +26,14 @@
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
-	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-functions-compat.js"></script>
 	<script src="../firebase-config.js"></script>
 	<script>
 	(function(){
 		const app = firebase.initializeApp(window.firebaseConfig);
 		const auth = firebase.auth();
 		const db = firebase.firestore();
+		const functions = firebase.functions();
 		
 		const start = Date.now();
 		const el = document.getElementById('timer');
@@ -111,52 +112,23 @@
 					try {
 						endBtn.disabled = true;
 						endBtn.textContent = 'Ending...';
-						
-						const now = new Date();
-						const sessionDuration = (now - start) / (1000 * 60); // minutes
-						
-						// Minimum session duration (1 minute for easy testing)
-						const minDuration = 1;
-						if (sessionDuration < minDuration) {
-							showResult(`Session must be at least ${minDuration} minute long. Current: ${Math.round(sessionDuration * 60)} seconds`, 'error');
-							endBtn.disabled = false;
-							endBtn.textContent = 'End Session';
-							return;
-						}
-						
-						// Update session document
-						await db.collection('sessions').doc(sessionId).update({
-							endTime: firebase.firestore.FieldValue.serverTimestamp(),
-							completed: true,
-							durationMinutes: Math.round(sessionDuration)
-						});
-						
-						// Award points and update user
-						const userRef = db.collection('users').doc(user.uid);
-						const userSnap = await userRef.get();
-						const currentPoints = userSnap.exists ? (userSnap.data().points || 0) : 0;
-						
-						await userRef.update({
-							points: currentPoints + 1,
-							activeSession: false,
-							lastSessionCompleted: firebase.firestore.FieldValue.serverTimestamp(),
-							lastActive: firebase.firestore.FieldValue.serverTimestamp()
-						});
-						
-						// Update session with points awarded
-						await db.collection('sessions').doc(sessionId).update({
-							pointsAwarded: true
-						});
-						
+
+						// Points are awarded by the completeSession Cloud Function,
+						// which validates the session server-side (ownership, minimum
+						// duration, no double-award). The client cannot award points.
+						const completeSession = functions.httpsCallable('completeSession');
+						const res = await completeSession({ sessionId });
+						const data = res.data || {};
+
 						clearInterval(timerInterval);
 						statusDiv.textContent = 'Completed';
 						statusDiv.style.color = 'green';
 						verifyBtn.disabled = true;
-						showResult(`Session completed! Duration: ${Math.round(sessionDuration)} minutes. You earned 1 point!`, 'success');
-						
+						showResult(`Session completed! Duration: ${data.durationMinutes} minutes. You earned ${data.pointsAwarded} point!`, 'success');
+
 						// Clear session from localStorage
 						localStorage.removeItem('activeSessionId');
-						
+
 					} catch (error) {
 						console.error('Error ending session:', error);
 						showResult('Failed to end session: ' + (error.message || 'Unknown error'), 'error');
@@ -177,7 +149,6 @@
 		}
 	})();
 	</script>
-	<script src="./app.js"></script>
 </body>
 </html>
 

@@ -43,12 +43,14 @@
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-functions-compat.js"></script>
 	<script src="../firebase-config.js"></script>
 	<script>
 	(function(){
 		const app = firebase.initializeApp(window.firebaseConfig);
 		const auth = firebase.auth();
 		const db = firebase.firestore();
+		const functions = firebase.functions();
 		
 		// Check if user is logged in
 		auth.onAuthStateChanged((user) => {
@@ -87,59 +89,30 @@
 				return;
 			}
 			
+			const payBtn = document.getElementById('pay-btn');
 			try {
-				const payBtn = document.getElementById('pay-btn');
 				payBtn.disabled = true;
-				payBtn.textContent = 'Processing...';
-				
-				// Create payment record
-				const paymentRef = await db.collection('payments').add({
-					userId: user.uid,
-					email: user.email,
-					amount: 500,
-					currency: 'NGN',
-					status: 'pending',
-					createdAt: firebase.firestore.FieldValue.serverTimestamp()
+				payBtn.textContent = 'Redirecting to Paystack...';
+				showPaymentStatus('Starting secure checkout...', 'info');
+
+				// The backend creates the pending payment record and returns a
+				// Paystack checkout URL. paymentStatus is unlocked only after
+				// Paystack confirms the charge to our webhook — the client can
+				// never mark itself as paid.
+				const initializePayment = functions.httpsCallable('initializePayment');
+				const res = await initializePayment({
+					callbackUrl: location.origin + '/dashboard.html'
 				});
-				
-				// For demo purposes, simulate successful payment
-				// In real implementation, integrate with Paystack here
-				
-				// Simulate payment success after 2 seconds
-				setTimeout(async () => {
-					try {
-						// Update payment status
-						await paymentRef.update({
-							status: 'success',
-							completedAt: firebase.firestore.FieldValue.serverTimestamp()
-						});
-						
-						// Update user payment status
-						await db.collection('users').doc(user.uid).update({
-							paymentStatus: true,
-							paymentDate: firebase.firestore.FieldValue.serverTimestamp()
-						});
-						
-						showPaymentStatus('Payment successful! Redirecting to dashboard...', 'success');
-						setTimeout(() => {
-							location.href = './dashboard.html';
-						}, 2000);
-						
-					} catch (error) {
-						console.error('Error updating payment:', error);
-						showPaymentStatus('Payment failed. Please try again.', 'error');
-						payBtn.disabled = false;
-						payBtn.textContent = 'Pay ₦500 Now';
-					}
-				}, 2000);
-				
-				showPaymentStatus('Processing payment...', 'info');
-				
+
+				const url = res.data && res.data.authorizationUrl;
+				if (!url) throw new Error('Could not start checkout. Please try again.');
+				location.href = url;
+
 			} catch (error) {
 				console.error('Payment error:', error);
-				showPaymentStatus('Payment failed: ' + error.message, 'error');
-				document.getElementById('pay-btn').disabled = false;
-				document.getElementById('pay-btn').textContent = 'Pay ₦500 Now';
+				showPaymentStatus('Payment failed: ' + (error.message || 'Unknown error'), 'error');
+				payBtn.disabled = false;
+				payBtn.textContent = 'Pay ₦500 Now';
 			}
 		};
 		

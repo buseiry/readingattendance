@@ -1,0 +1,89 @@
+rules_version = '2';
+
+// Security model
+// ---------------
+// The web client runs untrusted on the user's device, so it must NOT be able
+// to grant itself points or mark itself as paid. Those fields are "privileged"
+// and are written only by Cloud Functions using the Admin SDK, which bypasses
+// these rules entirely. Everything a client is allowed to do is spelled out
+// below; anything not explicitly allowed is denied.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Fields on a user document that only the backend may set/change.
+    function usersProtectedFields() {
+      return [
+        'points',
+        'paymentStatus',
+        'paymentDate',
+        'rank',
+        'lastSessionCompleted'
+      ];
+    }
+
+    function touchesProtected(fields) {
+      return request.resource.data.diff(resource.data)
+        .affectedKeys().hasAny(fields);
+    }
+
+    match /users/{uid} {
+      // Any signed-in user can read profiles — the leaderboard needs this.
+      allow read: if isSignedIn();
+
+      // A user may create only their own document, and only with the
+      // privileged fields pinned to safe defaults (no self-granted points,
+      // no self-granted payment).
+      allow create: if isOwner(uid)
+        && request.resource.data.points == 0
+        && request.resource.data.paymentStatus == false;
+
+      // A user may update their own profile (displayName, activeSession,
+      // lastActive, …) but may never touch a protected field. Points and
+      // paymentStatus change only through Cloud Functions.
+      allow update: if isOwner(uid)
+        && !touchesProtected(usersProtectedFields());
+
+      allow delete: if false;
+    }
+
+    match /sessions/{sessionId} {
+      // A user can only read their own sessions.
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+
+      // A user may open a session for themselves. Completion and the points
+      // award are done server-side, so it must start un-completed and
+      // un-awarded.
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.completed == false
+        && request.resource.data.pointsAwarded == false;
+
+      // Sessions are finalized only by the completeSession Cloud Function.
+      allow update, delete: if false;
+    }
+
+    match /payments/{paymentId} {
+      // A user can only read their own payment records.
+      allow read: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
+
+      // A user may record a pending payment intent for themselves. The final
+      // 'success' status — and the resulting paymentStatus on their user doc —
+      // is written only by the Paystack webhook (Admin SDK).
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.status == 'pending';
+
+      allow update, delete: if false;
+    }
+  }
+}

@@ -74,7 +74,6 @@
 				// Update user document
 				await userRef.set({
 					email: user.email,
-					points: userSnap.exists ? userSnap.data().points || 0 : 0,
 					activeSession: true,
 					lastActive: firebase.firestore.FieldValue.serverTimestamp()
 				}, { merge: true });

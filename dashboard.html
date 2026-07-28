@@ -123,7 +123,6 @@
             // Update user doc
             await userRef.set({
               email: user.email,
-              points: uData.points || 0,
               activeSession: true,
               lastActive: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });
