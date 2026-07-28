@@ -36,11 +36,21 @@
 			if (paymentBanner) paymentBanner.style.display = 'none';
 			if (dashboardContent) dashboardContent.style.display = 'grid';
 			
-			// Update points and rank
+			// Update points and rank. Rank is derived (position in the points
+			// ranking): count users with strictly more points, add 1.
 			const dashPoints = byId('points');
 			const dashRank = byId('rank');
 			if (dashPoints) dashPoints.textContent = userData.points ?? 0;
-			if (dashRank) dashRank.textContent = userData.rank ?? '-';
+			if (dashRank) {
+				try {
+					const higher = await db.collection('users')
+						.where('points', '>', userData.points || 0).count().get();
+					dashRank.textContent = String((higher.data().count || 0) + 1);
+				} catch (e) {
+					console.error('Could not compute rank:', e);
+					dashRank.textContent = '-';
+				}
+			}
 		}
 	});
 

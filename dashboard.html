@@ -84,8 +84,23 @@
         paymentBanner.style.display = 'none';
         dashboardContent.style.display = 'grid';
         pointsDiv.textContent = u.points ?? 0;
-        rankDiv.textContent = u.rank ?? '-';
+        rankDiv.textContent = await computeRank(u.points || 0);
       });
+
+      // Rank is derived, not stored: it is your position in the points
+      // ranking. Count how many users have strictly more points than you;
+      // your rank is that count + 1 (ties share the higher rank). Uses a
+      // server-side aggregation so it does not read the whole collection.
+      async function computeRank(myPoints) {
+        try {
+          const higher = await db.collection('users')
+            .where('points', '>', myPoints).count().get();
+          return String((higher.data().count || 0) + 1);
+        } catch (e) {
+          console.error('Could not compute rank:', e);
+          return '-';
+        }
+      }
 
       // Start session
       if (startBtn) {

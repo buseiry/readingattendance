@@ -9,7 +9,6 @@ to write the fields that matter for fairness and money:
 | `users.points`               | `completeSession` function  |
 | `users.paymentStatus`        | `paystackWebhook` function  |
 | `users.paymentDate`          | `paystackWebhook` function  |
-| `users.rank`                 | backend only                |
 | `users.lastSessionCompleted` | `completeSession` function  |
 | `sessions.completed`         | `completeSession` function  |
 | `sessions.pointsAwarded`     | `completeSession` function  |
