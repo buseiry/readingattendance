@@ -12,7 +12,7 @@
 	const registerBtn = byId('btn-register');
 	const loginBtn = byId('btn-login');
 	if (registerBtn) registerBtn.onclick = () => location.href = './register.html';
-	if (loginBtn) loginBtn.onclick = () => location.href = './login.html';
+	if (loginBtn) loginBtn.onclick = () => location.href = './index.html';
 
 	// Auth state hook to show basic info
 	auth.onAuthStateChanged(async (user) => {
@@ -36,11 +36,21 @@
 			if (paymentBanner) paymentBanner.style.display = 'none';
 			if (dashboardContent) dashboardContent.style.display = 'grid';
 			
-			// Update points and rank
+			// Update points and rank. Rank is derived (position in the points
+			// ranking): count users with strictly more points, add 1.
 			const dashPoints = byId('points');
 			const dashRank = byId('rank');
 			if (dashPoints) dashPoints.textContent = userData.points ?? 0;
-			if (dashRank) dashRank.textContent = userData.rank ?? '-';
+			if (dashRank) {
+				try {
+					const higher = await db.collection('users')
+						.where('points', '>', userData.points || 0).get();
+					dashRank.textContent = String(higher.size + 1);
+				} catch (e) {
+					console.error('Could not compute rank:', e);
+					dashRank.textContent = '-';
+				}
+			}
 		}
 	});
 
@@ -57,7 +67,7 @@
 				const userRef = db.collection('users').doc(user.uid);
 				const userSnap = await userRef.get();
 				
-				if (userSnap.exists() && userSnap.data().activeSession) {
+				if (userSnap.exists && userSnap.data().activeSession) {
 					alert('You already have an active session!');
 					return;
 				}
@@ -74,7 +84,6 @@
 				// Update user document
 				await userRef.set({
 					email: user.email,
-					points: userSnap.exists() ? userSnap.data().points || 0 : 0,
 					activeSession: true,
 					lastActive: firebase.firestore.FieldValue.serverTimestamp()
 				}, { merge: true });

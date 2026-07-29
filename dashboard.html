@@ -66,7 +66,7 @@
       auth.onAuthStateChanged(async (user) => {
         if (!user) {
           alert('Please login first.');
-          location.href = './login.html';
+          location.href = './index.html';
           return;
         }
 
@@ -84,8 +84,23 @@
         paymentBanner.style.display = 'none';
         dashboardContent.style.display = 'grid';
         pointsDiv.textContent = u.points ?? 0;
-        rankDiv.textContent = u.rank ?? '-';
+        rankDiv.textContent = await computeRank(u.points || 0);
       });
+
+      // Rank is derived, not stored: it is your position in the points
+      // ranking. Count how many users have strictly more points than you;
+      // your rank is that count + 1 (ties share the higher rank). This reads
+      // only the users ranked above you, not the whole collection.
+      async function computeRank(myPoints) {
+        try {
+          const higher = await db.collection('users')
+            .where('points', '>', myPoints).get();
+          return String(higher.size + 1);
+        } catch (e) {
+          console.error('Could not compute rank:', e);
+          return '-';
+        }
+      }
 
       // Start session
       if (startBtn) {
@@ -123,7 +138,6 @@
             // Update user doc
             await userRef.set({
               email: user.email,
-              points: uData.points || 0,
               activeSession: true,
               lastActive: firebase.firestore.FieldValue.serverTimestamp()
             }, { merge: true });

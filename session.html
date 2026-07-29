@@ -1,4 +1,4 @@
-yes  <!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
 	<meta charset="utf-8">
@@ -26,28 +26,50 @@ yes  <!doctype html>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-app-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-auth-compat.js"></script>
 	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore-compat.js"></script>
-	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-database-compat.js"></script>
+	<script src="https://www.gstatic.com/firebasejs/10.13.1/firebase-functions-compat.js"></script>
 	<script src="../firebase-config.js"></script>
 	<script>
 	(function(){
 		const app = firebase.initializeApp(window.firebaseConfig);
 		const auth = firebase.auth();
 		const db = firebase.firestore();
+		const functions = firebase.functions();
 		
-		const start = Date.now();
 		const el = document.getElementById('timer');
 		let timerInterval;
-		
+		// Provisional baseline (page-load time) until we read the session's
+		// real start time from Firestore below.
+		let startMs = Date.now();
+
 		// Timer functionality
 		function updateTimer() {
-			const ms = Date.now() - start;
-			const total = Math.floor(ms/1000);
+			const total = Math.max(0, Math.floor((Date.now() - startMs) / 1000));
 			const m = String(Math.floor(total/60)).padStart(2,'0');
 			const s = String(total%60).padStart(2,'0');
 			el.textContent = `${m}:${s}`;
 		}
-		
+
+		updateTimer();
 		timerInterval = setInterval(updateTimer, 1000);
+
+		// Resume from the session's real start time so reloading the page does
+		// not reset the clock. Reading the session requires auth, so wait for
+		// the auth state before fetching, then correct the baseline.
+		auth.onAuthStateChanged(async (user) => {
+			if (!user) return;
+			const sessionId = localStorage.getItem('activeSessionId');
+			if (!sessionId) return;
+			try {
+				const snap = await db.collection('sessions').doc(sessionId).get();
+				const st = snap.exists && snap.data().startTime;
+				if (st && st.toMillis) {
+					startMs = st.toMillis();
+					updateTimer();
+				}
+			} catch (e) {
+				console.error('Could not load session start time:', e);
+			}
+		});
 		
 		// Session verification functionality
 		const verifyBtn = document.getElementById('verify-session');
@@ -111,52 +133,23 @@ yes  <!doctype html>
 					try {
 						endBtn.disabled = true;
 						endBtn.textContent = 'Ending...';
-						
-						const now = new Date();
-						const sessionDuration = (now - start) / (1000 * 60); // minutes
-						
-						// Minimum session duration (1 minute for easy testing)
-						const minDuration = 1;
-						if (sessionDuration < minDuration) {
-							showResult(`Session must be at least ${minDuration} minute long. Current: ${Math.round(sessionDuration * 60)} seconds`, 'error');
-							endBtn.disabled = false;
-							endBtn.textContent = 'End Session';
-							return;
-						}
-						
-						// Update session document
-						await db.collection('sessions').doc(sessionId).update({
-							endTime: firebase.firestore.FieldValue.serverTimestamp(),
-							completed: true,
-							durationMinutes: Math.round(sessionDuration)
-						});
-						
-						// Award points and update user
-						const userRef = db.collection('users').doc(user.uid);
-						const userSnap = await userRef.get();
-						const currentPoints = userSnap.exists() ? (userSnap.data().points || 0) : 0;
-						
-						await userRef.update({
-							points: currentPoints + 1,
-							activeSession: false,
-							lastSessionCompleted: firebase.firestore.FieldValue.serverTimestamp(),
-							lastActive: firebase.firestore.FieldValue.serverTimestamp()
-						});
-						
-						// Update session with points awarded
-						await db.collection('sessions').doc(sessionId).update({
-							pointsAwarded: true
-						});
-						
+
+						// Points are awarded by the completeSession Cloud Function,
+						// which validates the session server-side (ownership, minimum
+						// duration, no double-award). The client cannot award points.
+						const completeSession = functions.httpsCallable('completeSession');
+						const res = await completeSession({ sessionId });
+						const data = res.data || {};
+
 						clearInterval(timerInterval);
 						statusDiv.textContent = 'Completed';
 						statusDiv.style.color = 'green';
 						verifyBtn.disabled = true;
-						showResult(`Session completed! Duration: ${Math.round(sessionDuration)} minutes. You earned 1 point!`, 'success');
-						
+						showResult(`Session completed! Duration: ${data.durationMinutes} minutes. You earned ${data.pointsAwarded} point!`, 'success');
+
 						// Clear session from localStorage
 						localStorage.removeItem('activeSessionId');
-						
+
 					} catch (error) {
 						console.error('Error ending session:', error);
 						showResult('Failed to end session: ' + (error.message || 'Unknown error'), 'error');
@@ -177,7 +170,6 @@ yes  <!doctype html>
 		}
 	})();
 	</script>
-	<script src="./app.js"></script>
 </body>
 </html>
 

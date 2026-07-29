@@ -1,0 +1,13 @@
+{
+  "name": "readingattendance-functions",
+  "description": "Trusted backend (Cloud Functions) for the reading-attendance app",
+  "main": "index.js",
+  "engines": {
+    "node": "20"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^5.1.0"
+  },
+  "private": true
+}
