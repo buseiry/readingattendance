@@ -7,11 +7,12 @@
 
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
-const admin = require("firebase-admin");
+const { initializeApp } = require("firebase-admin/app");
+const { getFirestore, FieldValue } = require("firebase-admin/firestore");
 const crypto = require("crypto");
 
-admin.initializeApp();
-const db = admin.firestore();
+initializeApp();
+const db = getFirestore();
 
 // Set with:  firebase functions:secrets:set PAYSTACK_SECRET_KEY
 const PAYSTACK_SECRET_KEY = defineSecret("PAYSTACK_SECRET_KEY");
@@ -79,16 +80,16 @@ exports.completeSession = onCall(async (request) => {
     }
 
     tx.update(sessionRef, {
-      endTime: admin.firestore.FieldValue.serverTimestamp(),
+      endTime: FieldValue.serverTimestamp(),
       completed: true,
       pointsAwarded: true,
       durationMinutes: Math.round(durationMinutes),
     });
     tx.update(userRef, {
-      points: admin.firestore.FieldValue.increment(POINTS_PER_SESSION),
+      points: FieldValue.increment(POINTS_PER_SESSION),
       activeSession: false,
-      lastSessionCompleted: admin.firestore.FieldValue.serverTimestamp(),
-      lastActive: admin.firestore.FieldValue.serverTimestamp(),
+      lastSessionCompleted: FieldValue.serverTimestamp(),
+      lastActive: FieldValue.serverTimestamp(),
     });
 
     return {
@@ -142,7 +143,7 @@ exports.initializePayment = onCall(
       currency: "NGN",
       status: "pending",
       reference: body.data.reference,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
 
     return {
@@ -184,7 +185,7 @@ exports.paystackWebhook = onRequest(
           paymentRef,
           {
             status: "success",
-            completedAt: admin.firestore.FieldValue.serverTimestamp(),
+            completedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
@@ -193,7 +194,7 @@ exports.paystackWebhook = onRequest(
             db.collection("users").doc(uid),
             {
               paymentStatus: true,
-              paymentDate: admin.firestore.FieldValue.serverTimestamp(),
+              paymentDate: FieldValue.serverTimestamp(),
             },
             { merge: true }
           );

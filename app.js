@@ -44,8 +44,8 @@
 			if (dashRank) {
 				try {
 					const higher = await db.collection('users')
-						.where('points', '>', userData.points || 0).count().get();
-					dashRank.textContent = String((higher.data().count || 0) + 1);
+						.where('points', '>', userData.points || 0).get();
+					dashRank.textContent = String(higher.size + 1);
 				} catch (e) {
 					console.error('Could not compute rank:', e);
 					dashRank.textContent = '-';
