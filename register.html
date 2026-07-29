@@ -11,7 +11,7 @@
     <h1>Create an Account</h1>
     <nav>
       <a href="./index.html">Home</a>
-      <a href="./login.html">Log In</a>
+      <a href="./index.html">Log In</a>
     </nav>
   </header>
 
@@ -79,7 +79,7 @@
           }, { merge: true });
 
           alert('Verify your email, then log in.');
-          window.location.href = './login.html';
+          window.location.href = './index.html';
         } catch (e) {
           regError.textContent = e.message || 'Registration failed';
         }

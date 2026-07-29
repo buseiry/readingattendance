@@ -12,7 +12,7 @@
 	const registerBtn = byId('btn-register');
 	const loginBtn = byId('btn-login');
 	if (registerBtn) registerBtn.onclick = () => location.href = './register.html';
-	if (loginBtn) loginBtn.onclick = () => location.href = './login.html';
+	if (loginBtn) loginBtn.onclick = () => location.href = './index.html';
 
 	// Auth state hook to show basic info
 	auth.onAuthStateChanged(async (user) => {
